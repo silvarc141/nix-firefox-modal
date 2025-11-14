@@ -1,13 +1,7 @@
-{
-  lib,
-  config,
-  pkgs,
-  ...
-}: let 
-  inherit (lib) mkEnableOption mkOption types concatMapStringsSep mkIf filterAttrs hasPrefix;
-  inherit (builtins) toJSON readFile replaceStrings attrNames match;
+{lib}: let
+  inherit (lib) mkEnableOption mkOption types;
 in {
-  options.programs.firefox.modal = {
+  programs.firefox.modal = {
     enable = mkEnableOption "Firefox modal keyboard mapping system";
     initialMode = mkOption {
       type = types.str;
@@ -63,19 +57,16 @@ in {
         a = {
           name = "ADDRESS";
           onEnter = "Browser:OpenLocation";
-          # block some annoying shortcuts
-          onKey =
-            # js
-            ''
-              if (keyBuffer == "<C-[>"
-                || keyBuffer == "<C-]>"
-                || keyBuffer == "<C-w>"
-                || keyBuffer == "<C-t>"
-                || keyBuffer == "<C-n>"
-                || keyBuffer == "<C-p>"
-                || keyBuffer == "<Tab>"
-              ) blockDefaultKey()
-            '';
+          onKey = ''
+            if (keyBuffer == "<C-[>"
+              || keyBuffer == "<C-]>"
+              || keyBuffer == "<C-w>"
+              || keyBuffer == "<C-t>"
+              || keyBuffer == "<C-n>"
+              || keyBuffer == "<C-p>"
+              || keyBuffer == "<Tab>"
+            ) blockDefaultKey()
+          '';
         };
         s = {
           name = "SEARCH";
@@ -104,10 +95,8 @@ in {
             type = types.str;
             description = ''
               Possible values:
-              - Commands in formats "cmd_*" (ex. cmd_scrollPageDown) or "*:*" (ex. "Browser:Forward"). May be discovered by searching "mainCommandSet" or "mainKeyset" in Firefox's browser toolbox (not web dev tools!).
-              - JavaScript to execute. Look at ${./template.js} for variables in scope.
-              More resources:
-              "gBrowser. " - https://searchfox.org/mozilla-central/source/browser/components/tabbrowser/content/tabbrowser.js
+              - Commands in formats "cmd_*" (ex. cmd_scrollPageDown) or "*:*" (ex. "Browser:Forward").
+              - JavaScript to execute.
             '';
           };
           modes = mkOption {
@@ -312,102 +301,5 @@ in {
       default = "";
       description = "JavaScript code to inject after the main block";
     };
-  };
-
-  config = mkIf (config.programs.firefox.enable && config.programs.firefox.modal.enable) {
-    programs.firefox.package = let
-      cfg = config.programs.firefox.modal;
-
-      mkCommand = cmd:
-        if (hasPrefix "cmd_" cmd)
-        then "ctx.window.goDoCommand('${cmd}')"
-        else if ((match "[A-Z][a-z]+:[A-Za-z0-9_]+" cmd) != null)
-        then
-          # js
-          ''
-            const element = ctx.document.getElementById('${cmd}'); 
-            if (element) element.doCommand();
-            else Components.utils.reportError('Could not find element by id for command: ${cmd}');''
-        else cmd;
-
-      preInjection = cfg.extraJSConfigPre;
-      postInjection = cfg.extraJSConfigPost;
-
-      mappingsInjection = concatMapStringsSep ",\n" (mapping: ''
-        {
-          key: "${mapping.key}",
-          command: (ctx) => {${mkCommand mapping.command}},
-          modes: ${toJSON mapping.modes}
-        }'')
-      cfg.mappings;
-
-      modeExitCallbackInjection = let
-        callbacks = filterAttrs (id: mode: mode.onExit != "") cfg.modes;
-      in
-        concatMapStringsSep "\n" (
-          id: ''
-            case "${id}":
-              ${mkCommand cfg.modes.${id}.onExit}
-              break;''
-        ) (attrNames callbacks);
-
-      modeEnterCallbackInjection = let
-        callbacks = filterAttrs (id: mode: mode.onEnter != "") cfg.modes;
-      in
-        concatMapStringsSep "\n" (
-          id: ''
-            case "${id}":
-              ${mkCommand cfg.modes.${id}.onEnter}
-              break;''
-        ) (attrNames callbacks);
-
-      modeKeyCallbackInjection = let
-        callbacks = filterAttrs (id: mode: mode.onKey != "") cfg.modes;
-      in
-        concatMapStringsSep "\n" (
-          id: ''
-            case "${id}":
-              ${mkCommand cfg.modes.${id}.onKey}
-              break;''
-        ) (attrNames callbacks);
-
-      modeNameInjection = concatMapStringsSep "\n" (id: ''
-        case "${id}":
-          modeName = "${cfg.modes.${id}.name}";
-          break;'') (attrNames cfg.modes);
-
-      indicatorStyleInjection = cfg.modeIndicatorStyle;
-
-      initialModeInjection = cfg.initialMode;
-
-      mouseModeInjection = cfg.mouseMode;
-
-      final =
-        replaceStrings (map (x: "/*###${x}*/") [
-          "PRE"
-          "POST"
-          "MAPPINGS"
-          "MODE_EXIT_CALLBACK"
-          "MODE_ENTER_CALLBACK"
-          "MODE_KEY_CALLBACK"
-          "MODE_NAME"
-          "INDICATOR_STYLE"
-          "INITIAL_MODE"
-          "MOUSE_MODE"
-        ]) [
-          preInjection
-          postInjection
-          mappingsInjection
-          modeExitCallbackInjection
-          modeEnterCallbackInjection
-          modeKeyCallbackInjection
-          modeNameInjection
-          indicatorStyleInjection
-          initialModeInjection
-          mouseModeInjection
-        ]
-        (readFile ./template.js);
-    in
-      pkgs.firefox.override {extraPrefs = final;};
   };
 }

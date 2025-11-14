@@ -1,5 +1,3 @@
-//commented 3 hashes with text are tags for code generation
-
 function setModeMain(modeId, ctx) {
   //#region Helpers for mode callbacks
   const gBrowser = ctx.window.gBrowser;
